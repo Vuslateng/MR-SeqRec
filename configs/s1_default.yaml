@@ -1,0 +1,28 @@
+# S1 默认配置：SASRec 基线训练与评估
+data:
+  interactions_file: "data/amazon/Health.txt"
+  min_interactions: 5
+  max_seq_len: 50
+  num_negatives: 100
+  seed: 2026
+
+model:
+  name: sasrec
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 2
+  dropout: 0.2
+
+train:
+  batch_size: 256
+  epochs: 50
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip: null
+  log_every: 100
+  device: auto
+  seed: 2026
+
+eval:
+  topk: [10, 20]
+  batch_size: 256

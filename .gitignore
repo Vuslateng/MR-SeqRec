@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# 数据与产物（不进仓库）
+data/
+outputs/
+runs/
+*.pt
+*.json
+
+# IDE
+.idea/
+
+# 临时文件
+*.tmp
+~$*
+
+# 系统
+.DS_Store
+Thumbs.db
