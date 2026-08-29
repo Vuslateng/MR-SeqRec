@@ -11,12 +11,13 @@ python -m venv .venv            # Python ≥ 3.12
 pip install -e ".[dev]"
 ```
 
-当前为 Intel Arc 130T(16GB) 无 CUDA，torch 按 CPU 安装；后续如需 Arc XPU 加速再装 Intel Extension for PyTorch。
+**训练环境（2026-08-29 起）**：模型训练一律在学校 GPU 服务器（CUDA）执行，本机只做开发 + pytest + 冒烟。
+本机 Intel Arc 130T 无 CUDA，torch 按 CPU 装即可；上服务器训练照 `scripts/SERVER_GUIDE.md`（或直接跑 `scripts/server_run.sh`）。
 
 ## 使用
 
 ```bash
-# 训练并评估 SASRec 基线（配置见 configs/s1_default.yaml）
+# 训练并评估 SASRec 基线（本地 CPU 冒烟用；真实数据训练请在 GPU 服务器跑）
 python -m mrseqrec.cli train --config configs/s1_default.yaml --save-dir outputs/s1
 
 # 数据信号检验：购买间隔分布与周期性（健康叙事可行性闸门）

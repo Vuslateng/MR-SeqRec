@@ -33,7 +33,10 @@ class ModelConfig(BaseModel):
 
 
 class TrainConfig(BaseModel):
-    """训练配置。device="auto" 依次尝试 CUDA → Intel XPU → CPU。"""
+    """训练配置。device="auto" 依次尝试 CUDA → Intel XPU → CPU。
+
+    num_negatives: 训练损失负采样数。词表 ≤ num_negatives+1 时自动回退全词表 CE。
+    """
 
     batch_size: int = Field(256, ge=1)
     epochs: int = Field(50, ge=1)
@@ -41,6 +44,7 @@ class TrainConfig(BaseModel):
     weight_decay: float = Field(0.0, ge=0.0)
     grad_clip: float | None = Field(None, gt=0.0)
     log_every: int = Field(100, ge=1)
+    num_negatives: int = Field(100, ge=1)
     device: str = "auto"
     seed: int = 2026
 

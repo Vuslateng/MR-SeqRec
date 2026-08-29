@@ -1,0 +1,31 @@
+# S1 真实数据基线：Amazon Health_and_Household（k-core 10，CPU 可行规模）
+# 规模依据（2026-08-29 实测）：kcore10 -> 2.38M 交互 / 136K 用户 / 63K 商品 / 序列中位 13
+data:
+  interactions_file: "data/amazon/Health.txt"
+  min_interactions: 10
+  max_seq_len: 50
+  num_negatives: 100
+  seed: 2026
+
+model:
+  name: sasrec
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 2
+  dropout: 0.2
+
+train:
+  batch_size: 256
+  epochs: 30
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip: null
+  log_every: 100
+  # 采样 CE：每位置 1 正 + 100 负（词表 6 万时全词表 softmax 需 ~11h，采样后 ~分钟级）
+  num_negatives: 100
+  device: auto
+  seed: 2026
+
+eval:
+  topk: [10, 20]
+  batch_size: 256

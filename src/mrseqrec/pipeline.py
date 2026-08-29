@@ -66,6 +66,8 @@ def run_training(config: Config, save_dir: Path | None = None) -> PipelineResult
         weight_decay=config.train.weight_decay,
         grad_clip=config.train.grad_clip,
         log_every=config.train.log_every,
+        num_negatives=config.train.num_negatives,
+        item_vocab_size=data.item_vocab_size,
     )
     losses = trainer.fit(train_ds, epochs=config.train.epochs, batch_size=config.train.batch_size)
 

@@ -20,6 +20,7 @@ train:
   weight_decay: 0.0
   grad_clip: null
   log_every: 100
+  num_negatives: 100  # 采样 CE；词表≤101 时自动回退全词表
   device: auto
   seed: 2026
 
