@@ -14,7 +14,7 @@ runs/
 *.pt
 *.json
 
-# IDE
+# IDE / 工具（绝不进仓库）
 .idea/
 
 # 临时文件
