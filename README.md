@@ -1,7 +1,7 @@
 # MR-SeqRec
 
 缺失不变多模态序列推荐（Missingness-Invariant Multimodal Sequential Recommendation）。
-双目标：中国大学生计算机设计大赛（2027届）+ 国际权威期刊。设计细节见 `PROJECT_SPEC.md`。
+设计细节见 `PROJECT_SPEC.md`。
 
 ## 环境
 
@@ -11,8 +11,8 @@ python -m venv .venv            # Python ≥ 3.12
 pip install -e ".[dev]"
 ```
 
-**训练环境（2026-08-29 起）**：模型训练一律在学校 GPU 服务器（CUDA）执行，本机只做开发 + pytest + 冒烟。
-本机 Intel Arc 130T 无 CUDA，torch 按 CPU 装即可；上服务器训练照 `scripts/SERVER_GUIDE.md`（或直接跑 `scripts/server_run.sh`）。
+**训练环境（2026-08）**：模型训练在学校 GPU 服务器（CUDA）执行，本机只做开发 + pytest + 冒烟。
+本机无 CUDA，torch 按 CPU 装即可；上服务器训练照 `scripts/SERVER_GUIDE.md`（或直接跑 `scripts/server_run.sh`）。
 
 ## 使用
 
