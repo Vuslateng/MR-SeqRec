@@ -19,7 +19,7 @@ sys.exit(0 if torch.cuda.is_available() else 1)
 PY
 
 echo "==> [2/5] 安装项目依赖（torch 已满足则跳过，不会重装）=="
-pip install -e "$PROJECT_DIR"
+pip install -e "$PROJECT_DIR[dev]"   # [dev] 带上 pytest，供 [4/5] 冒烟测试使用
 
 echo "==> [3/5] 数据准备 =="
 if [ ! -f "$DATA_FILE" ]; then

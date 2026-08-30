@@ -91,3 +91,50 @@ def run_training(config: Config, save_dir: Path | None = None) -> PipelineResult
         metrics=metrics, losses=losses, retention=retention,
         n_users=data.n_users, item_vocab_size=data.item_vocab_size,
     )
+
+
+def run_eval(config: Config, checkpoint_path: str | Path, save_dir: Path | None = None) -> PipelineResult:
+    """加载已训练 checkpoint 只做评估（valid+test），用于修复模型后重跑基线、复现数字。
+
+    与 run_training 的唯一差别：不训练，直接读权重评估。数据划分必须与训练时一致
+    （同 config、同 seed），否则数字不可比。
+    """
+    set_seed(config.train.seed)
+    device = resolve_device(config.train.device)
+    logger.info("device=%s data=%s", device, config.data.interactions_file)
+
+    df = load_interactions(config.data.interactions_file)
+    data = preprocess(
+        df,
+        min_interactions=config.data.min_interactions,
+        num_negatives=config.data.num_negatives,
+        seed=config.data.seed,
+    )
+    logger.info("users=%d vocab=%d", data.n_users, data.item_vocab_size)
+
+    valid_ds = EvalDataset(data.valid_input_seqs, data.valid_targets, data.valid_negatives, config.data.max_seq_len)
+    test_ds = EvalDataset(data.test_input_seqs, data.test_targets, data.test_negatives, config.data.max_seq_len)
+
+    model = SASRec(
+        item_vocab_size=data.item_vocab_size,
+        hidden_dim=config.model.hidden_dim,
+        num_layers=config.model.num_layers,
+        num_heads=config.model.num_heads,
+        dropout=config.model.dropout,
+        max_seq_len=config.data.max_seq_len,
+    ).to(device)
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+
+    evaluator = RankingEvaluator(model, topks=config.eval.topk, batch_size=config.eval.batch_size, device=device)
+    valid_metrics = evaluator.evaluate(valid_ds)
+    test_metrics = evaluator.evaluate(test_ds)
+    metrics = {f"valid/{k}": v for k, v in valid_metrics.items()}
+    metrics.update({f"test/{k}": v for k, v in test_metrics.items()})
+    logger.info("valid=%s", valid_metrics)
+    logger.info("test=%s", test_metrics)
+
+    if save_dir is not None:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        (save_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+    return PipelineResult(metrics=metrics, n_users=data.n_users, item_vocab_size=data.item_vocab_size)

@@ -6,9 +6,14 @@ import numpy as np
 
 
 def rank_of_positive(scores: np.ndarray) -> np.ndarray:
-    """每个用户正例在降序排序中的 0-based 位次。scores: (U, C)。"""
+    """每个用户正例在降序排序中的 0-based 位次。scores: (U, C)。
+
+    防御：含 NaN 的行记最差位次 C。np.argsort 把 NaN 排到末尾，若不处理，
+    NaN 行会被误判为正例第 1 名，指标虚高（曾致 recall@10 虚报到 0.99）。
+    """
     order = np.argsort(-scores, axis=1, kind="stable")
-    return np.argmax(order == 0, axis=1)
+    rank = np.argmax(order == 0, axis=1)
+    return np.where(np.isnan(scores).any(axis=1), scores.shape[1], rank)
 
 
 def recall_at_k(pos_ranks: np.ndarray, k: int) -> float:

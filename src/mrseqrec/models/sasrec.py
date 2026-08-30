@@ -58,7 +58,12 @@ class SASRec(nn.Module):
             diagonal=1,
         )
         pad_as_key = (input_ids == 0).unsqueeze(1).expand(b, l, l)  # 不能 attend 到 pad 位置
-        return causal + torch.where(pad_as_key, torch.finfo(dtype).min, 0.0)
+        mask = causal + torch.where(pad_as_key, torch.finfo(dtype).min, 0.0)
+        # 每个 query 行保留对角线自注意力：左填充下 pad 行会全掩码，触发 fused softmax 的 NaN
+        #（评估用左填充；pad 行输出不参与 loss/指标，放开对角线语义无影响）
+        idx = torch.arange(l, device=input_ids.device)
+        mask[:, idx, idx] = 0.0
+        return mask
 
     def forward(self, input_ids: Tensor) -> Tensor:
         """input_ids: (B, L)。返回全序列隐藏 (B, L, d)。

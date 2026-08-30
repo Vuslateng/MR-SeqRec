@@ -19,3 +19,16 @@ def test_recall_and_ndcg():
     assert res["recall@2"] == 1.0
     assert res["ndcg@1"] == 0.5  # rank0 命中 1 个
     assert abs(res["ndcg@2"] - (1.0 + 1.0 / np.log2(3)) / 2) < 1e-9
+
+
+def test_rank_nan_guard():
+    """含 NaN 的行必须记最差位次，不能被 argsort 的 NaN-最后 行为误判为正例第 1 名。
+
+    回归：评估行含 NaN 曾使指标虚高到 recall@10=0.99。
+    """
+    scores = np.array([
+        [np.nan, np.nan],  # 全 NaN → 最差位次 C=2
+        [0.9, np.nan],     # 含 NaN → 最差位次 2
+        [0.9, 0.1],        # 正常 → rank 0
+    ])
+    assert rank_of_positive(scores).tolist() == [2, 2, 0]
