@@ -33,6 +33,20 @@ def test_fit_logistic_degenerate_y_stays_finite():
     assert np.max(np.abs(b0)) < 10 and np.max(np.abs(b1)) < 10
 
 
+def test_fit_logistic_with_se():
+    beta_true = np.array([0.5, -1.2, 0.8])
+    X, y = _synth(beta_true, n=40000)
+    beta, se = fit_logistic(X, y, with_se=True)
+    assert np.max(np.abs(beta - beta_true)) < 0.15
+    # 强信号下 log(count) 系数应显著（|β|/SE 远大于阈值）
+    assert abs(beta[1]) / se[1] > 10
+    # with_se=False 兼容旧接口，且两种路径系数一致
+    b2 = fit_logistic(X, y)
+    assert np.allclose(b2, beta, atol=1e-9)
+    # SE 为正且有限
+    assert np.all(se > 0) and np.all(np.isfinite(se))
+
+
 def test_missing_probability_bounds_and_monotone():
     X = np.column_stack([np.linspace(-3, 3, 100), np.ones(100)])
     beta = np.array([0.0, 1.0, 0.0])

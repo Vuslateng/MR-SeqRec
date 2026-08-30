@@ -28,7 +28,8 @@ def fit_logistic(
     l2: float = 1e-3,
     max_iter: int = 200,
     tol: float = 1e-9,
-) -> np.ndarray:
+    with_se: bool = False,
+):
     """IRLS（Newton-Raphson）拟合逻辑回归 P(y=1 | X)。
 
     参数
@@ -37,9 +38,12 @@ def fit_logistic(
     y : (n,) ∈ {0,1}，对缺失指示取 1=缺失；
     l2 : L2 正则系数，防 one-hot 共线性并保证退化数据收敛（含截距一并正则，
          正则项随样本量被稀释，大样本下对系数几乎无偏）；
-    max_iter / tol : 迭代上限与系数步长停机阈值。
+    max_iter / tol : 迭代上限与系数步长停机阈值；
+    with_se : True 时返回 (beta, se)，se 为 L2 惩罚估计的 sandwich 标准差
+              （H⁻¹(X'WX)H⁻¹ 对角开方，H = X'WX + λI），用于 §2.7 C1 显著性并读。
 
-    返回 (d+1,) 系数数组，下标 0 为截距。
+    返回 with_se=False → (d+1,) 系数数组（下标 0 为截距）；
+          with_se=True  → (beta, se)。
     """
     Xb = add_bias(X)
     n, d = Xb.shape
@@ -48,7 +52,8 @@ def fit_logistic(
         eta = Xb @ beta
         mu = 1.0 / (1.0 + np.exp(-np.clip(eta, -30.0, 30.0)))
         w = mu * (1.0 - mu)
-        H = Xb.T @ (Xb * w[:, None]) + l2 * np.eye(d)
+        W = Xb * w[:, None]
+        H = Xb.T @ W + l2 * np.eye(d)
         grad = Xb.T @ (y - mu) - l2 * beta
         try:
             delta = np.linalg.solve(H, grad)
@@ -57,7 +62,18 @@ def fit_logistic(
         beta = beta + delta
         if np.max(np.abs(delta)) < tol:
             break
-    return beta
+    if not with_se:
+        return beta
+    W = Xb * w[:, None]
+    XWX = Xb.T @ W
+    H = XWX + l2 * np.eye(d)
+    try:
+        Hinv = np.linalg.inv(H)
+    except np.linalg.LinAlgError:
+        Hinv = np.linalg.pinv(H)
+    cov = Hinv @ XWX @ Hinv
+    se = np.sqrt(np.maximum(np.diag(cov), 0.0))
+    return beta, se
 
 
 def missing_probability(beta: np.ndarray, X: np.ndarray) -> np.ndarray:
