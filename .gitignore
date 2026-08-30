@@ -7,10 +7,10 @@ venv/
 build/
 dist/
 
-# 数据与产物（不进仓库）
-data/
-outputs/
-runs/
+# 数据与产物（不进仓库；锚定根目录，避免误伤 src/mrseqrec/data/ 源码）
+/data/
+/outputs/
+/runs/
 *.pt
 *.json
 
