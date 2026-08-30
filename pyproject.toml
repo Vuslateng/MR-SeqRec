@@ -28,3 +28,4 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]  # 让 tests 可直接 import scripts/*（无 __init__.py 的命名空间包）
