@@ -76,7 +76,11 @@ def sample_missingness(
     if mnar_rate > 0:
         # 显式要求的通道不允许被静默跳过：缺 counts 直接报错而非忽略
         assert counts is not None, "mnar_rate>0 时必须提供 counts（顺序与 base_avail 一致）"
-        mask = mnar_select(np.asarray(counts, dtype=float), mnar_rate)
+        c = np.asarray(counts, dtype=float)
+        # 防御断言：长度不对齐会让 zip 错位（item j 读到 item j-1 的流行度），
+        # 错位结果"看起来正常"但冷门判选偏移，禁止静默发生
+        assert len(c) == len(items), f"counts({len(c)}) 长度须与 items({len(items)}) 对齐"
+        mask = mnar_select(c, mnar_rate)
         mnar_items = {it for it, m in zip(items, mask) if m}
 
     out = {}

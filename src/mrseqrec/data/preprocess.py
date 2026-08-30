@@ -33,6 +33,7 @@ class PreprocessedData:
     item_vocab_size: int = 0                                            # 含 pad
     n_users: int = 0
     seq_lens: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int64))
+    item_map: dict[int, object] = field(default_factory=dict)           # 重编号 id → 原始 id（S2 对齐 meta 用）
 
 
 def k_core_filter(df: pd.DataFrame, k: int) -> pd.DataFrame:
@@ -125,6 +126,10 @@ def preprocess(df: pd.DataFrame, min_interactions: int, num_negatives: int, seed
     valid_neg = np.stack([_sample_negatives(s, t, vocab, num_negatives, rng, pool_all) for s, t in zip(valid_in, valid_t)])
     test_neg = np.stack([_sample_negatives(s, t, vocab, num_negatives, rng, pool_all) for s, t in zip(test_in, test_t)])
 
+    # 重编号 id → 原始 id（与 reindex 的 sorted 映射一致），供 S2 对齐 meta 可用性
+    orig_sorted = sorted(filtered["item"].unique())
+    item_map = {j + 1: orig for j, orig in enumerate(orig_sorted)}
+
     return PreprocessedData(
         train_seqs=train,
         valid_input_seqs=valid_in,
@@ -136,4 +141,5 @@ def preprocess(df: pd.DataFrame, min_interactions: int, num_negatives: int, seed
         item_vocab_size=vocab,
         n_users=len(seqs),
         seq_lens=np.asarray([len(s) for s in seqs], dtype=np.int64),
+        item_map=item_map,
     )

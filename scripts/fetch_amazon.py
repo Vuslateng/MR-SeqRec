@@ -80,15 +80,25 @@ def convert(csv: Path, out: Path) -> None:
     df = df.dropna(subset=["user_id", "parent_asin", "timestamp"])
 
     df["user"] = df["user_id"].astype("category").cat.codes
-    df["item"] = df["parent_asin"].astype("category").cat.codes
+    parent_cat = df["parent_asin"].astype("category")
+    df["item"] = parent_cat.cat.codes
     # 毫秒(13位, >1e12) -> 秒；已是秒则原样
     df["ts"] = df["timestamp"] / (1000 if df["timestamp"].max() > 1e12 else 1)
+
+    # 持久化 parent_asin ↔ item code 映射：category codes 无法从 Health.txt 反推回原始
+    # asin，S2 真实模式需用 meta（parent_asin 为字符串）对齐物品可用性，缺此映射会
+    # 全部走 desc 缺失回退、静默摧毁自然 MNAR 信号（见 s2_train._build_real_data）。
+    map_path = out.with_name(out.stem + ".items.jsonl")
+    with open(map_path, "w", encoding="utf-8") as fh:
+        for code, asin in enumerate(parent_cat.cat.categories):
+            fh.write(json.dumps({"parent_asin": str(asin), "code": int(code)}, ensure_ascii=False) + "\n")
 
     df = df.sort_values(["user", "ts"], kind="mergesort")
     df[["user", "item", "ts"]].to_csv(out, sep=" ", header=False, index=False)
 
     print(f"rows: {before} -> {len(df)} (kept repurchases)")
     print(f"users: {df['user'].nunique()}, items: {df['item'].nunique()}")
+    print(f"item mapping: {map_path} ({len(parent_cat.cat.categories)} items)")
     print(f"ts range: {df['ts'].min():.0f} .. {df['ts'].max():.0f} (unix seconds)")
     print(f"written: {out}")
 

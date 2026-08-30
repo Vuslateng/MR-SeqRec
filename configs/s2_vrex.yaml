@@ -1,0 +1,45 @@
+# S2 最小核配置：V-REx 环境构造 + 反平凡性 OOD 评估（§2.4/§2.6 ④）
+# 本地合成冒烟用；真实数据训练在服务器执行（数据 + meta 就位后）。
+data:
+  interactions_file: "data/amazon/Health.txt"
+  min_interactions: 10
+  max_seq_len: 50
+  num_negatives: 100
+  seed: 2026
+
+model:
+  name: sasrec
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 2
+  dropout: 0.2
+
+# 真实模式必填：物品级可用性（desc_informativity 同款格式）
+# meta_items: "outputs/data_check/meta_items.jsonl"
+
+n_modalities: 3          # text / image / desc
+split_obs: true          # obs 按序列末位物品自然配置拆 desc 有无两环境
+beta: 1.0                # V-REx 不变强度（网格 {0.1,1,10} 按 valid 选，§2.4）
+env_batch: 32            # 每环境每步子批大小
+epochs: 30
+lr: 0.001
+weight_decay: 0.0
+grad_clip: null
+num_negatives: 100
+max_seq_len: 50
+methods: ["vrex", "ermdrop"]
+# 训练环境方案：obs（自然） + 合成增广（同一批物品、不同缺失配置）
+schemes:
+  - {name: obs}
+  - {name: mcar, mcar_p: 0.5}
+  - {name: mnar, mnar_rate: 0.5}
+# OOD 评估方案：训练未见类型（cover/missing-image）与未见缺失率（多档曲线）
+ood_schemes:
+  - {name: mcar, mcar_p: 0.3}
+  - {name: mcar, mcar_p: 0.7}
+  - {name: cover, coverage_p: 0.5, coverage_mod: image}
+  - {name: mnar, mnar_rate: 0.9}
+device: auto
+seed: 2026
+eval_batch_size: 256
+topk: [10, 20]
