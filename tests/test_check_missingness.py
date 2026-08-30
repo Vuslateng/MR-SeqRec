@@ -6,6 +6,7 @@ import pandas as pd
 from scripts.check_missingness import (
     _has_desc,
     _image_urls,
+    _mnar_verdict,
     _point_biserial,
     compute_stats,
     iter_jsonl,
@@ -139,6 +140,32 @@ def test_point_biserial_known():
     # 常量 binary -> 0
     assert _point_biserial([1.0, 1.0, 1.0], [1.0, 2.0, 3.0]) == 0.0
     assert _point_biserial([], []) == 0.0
+
+
+def test_mnar_verdict_degenerate_image():
+    # image 覆盖 100% -> 相关 0（无方差，无信息）；必须按 desc 判，且 0.118 属弱-中而非"强"
+    ch, corr, label = _mnar_verdict({
+        "point_biserial_img": 0.0,
+        "point_biserial_desc": 0.1177,
+        "point_biserial_text": 0.2208,
+    })
+    assert ch == "desc"
+    assert abs(corr - 0.1177) < 1e-9
+    assert label.startswith("弱-中")  # 0.118 属弱-中档（<0.15），不得判成"中"
+
+
+def test_mnar_verdict_weak_and_fallback():
+    # 全部接近 0 -> 弱
+    ch, corr, label = _mnar_verdict({
+        "point_biserial_img": 0.0, "point_biserial_desc": 0.0, "point_biserial_text": 0.0,
+    })
+    assert label == "弱（倾向接近随机）"
+    # desc 为常数(0) -> 回退到 text
+    ch, corr, label = _mnar_verdict({
+        "point_biserial_img": 0.0, "point_biserial_desc": 0.0, "point_biserial_text": 0.32,
+    })
+    assert ch == "text" and abs(corr - 0.32) < 1e-9
+    assert "中" in label
 
 
 def test_iter_jsonl_gz_sample(tmp_path):

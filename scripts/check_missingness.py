@@ -369,6 +369,25 @@ def _point_biserial(binary: list[float], cont: list[float]) -> float:
     return (m1 - m0) / s * (p * (1 - p)) ** 0.5
 
 
+def _mnar_verdict(pm: dict) -> tuple[str, float, str]:
+    """MNAR 倾向判定：取实际缺失通道（desc）的点二列相关；image 覆盖≈100% 时方差为 0、无信息量。
+
+    返回 (通道, 相关, 结论)。desc 是环境构造的实际缺失通道；若 desc 为常数则回退到 text。
+    """
+    d, t, i = pm["point_biserial_desc"], pm["point_biserial_text"], pm["point_biserial_img"]
+    if d != 0.0:
+        channel, corr = "desc", d
+    else:
+        channel, corr = max(("desc", d), ("text", t), key=lambda kv: abs(kv[1]))
+    if abs(corr) >= 0.15:
+        label = "中（倾向与流行度耦合，关口2 需倾向建模 + confound 消融）"
+    elif abs(corr) >= 0.05:
+        label = "弱-中（存在倾向耦合，关口2 需受控合成强倾向验证）"
+    else:
+        label = "弱（倾向接近随机）"
+    return channel, corr, label
+
+
 # ---------------------------------------------------------------- 报告
 
 def _format_report(stats: dict) -> str:
@@ -415,8 +434,10 @@ def report(stats: dict) -> None:
     print("决策指引：")
     print(f"  主缺失模式 '{top_pattern}' 占 {top_share}% , 共 {pd_['distinct']} 种模式")
     print(f"  -> 观测缺失模式分环境可用性: {'依赖合成增广（自然模式过少/过偏）' if pd_['distinct'] < 4 or top_share > 90 else '观测模式可支撑环境构造'}")
-    corr = pm["point_biserial_img"]
-    print(f"  -> 流行度×image 相关 {corr:+.3f} : MNAR 倾向证据 {'强（倾向与流行度耦合，需倾向建模）' if abs(corr) > 0.1 else '弱（倾向接近随机）'}")
+    ch, corr, label = _mnar_verdict(pm)
+    d, t, i = pm["point_biserial_desc"], pm["point_biserial_text"], pm["point_biserial_img"]
+    print(f"  -> 流行度×缺失 点二列相关 desc={d:+.3f} text={t:+.3f} image={i:+.3f}")
+    print(f"     MNAR 倾向证据（按实际缺失通道 {ch}={corr:+.3f} 判）：{label}")
 
 
 # ---------------------------------------------------------------- 主流程
