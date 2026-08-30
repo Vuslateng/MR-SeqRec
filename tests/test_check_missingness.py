@@ -54,9 +54,13 @@ def test_parse_meta_and_review():
 
 
 def test_pattern_label():
+    assert pattern_label(True, True, True) == "text+image+desc"
     assert pattern_label(True, True) == "text+image"
-    assert pattern_label(True, False) == "text-only"
-    assert pattern_label(False, True) == "image-only"
+    assert pattern_label(True, False, True) == "text+desc"
+    assert pattern_label(False, True, True) == "image+desc"
+    assert pattern_label(True, False) == "text"
+    assert pattern_label(False, True) == "image"
+    assert pattern_label(False, False, True) == "desc"
     assert pattern_label(False, False) == "none"
 
 
@@ -100,17 +104,22 @@ def test_compute_stats_synthetic():
 
     assert ic["pct_title"] == 100.0
     assert ic["pct_image"] == 50.0
+    assert ic["pct_description"] == 50.0
     assert ic["pct_none"] == 0.0
     assert ic["median_image_count"] == 1  # [0, 2] 中位
     assert ic["n_interactions"] == 150
 
-    # 模式：A×u1/u2 有文本+图；B×u1 无文本无图 -> text+image=2, none=1
-    assert pd_["patterns"] == {"text+image": 2, "text-only": 0, "image-only": 0, "none": 1}
+    # 模式（含 desc）：A(u1/u2, 有文本+图, 无desc) -> text+image；B(u1, 无文本无图, 有desc) -> desc
+    assert pd_["patterns"]["text+image"] == 2
+    assert pd_["patterns"]["desc"] == 1
+    assert pd_["patterns"]["none"] == 0
     assert pd_["has_text_share"] == round(2 / 3 * 100, 2)
     assert pd_["distinct"] == 2
 
     # 流行度×image：A(count100,图) vs B(count50,无图) -> 正相关
     assert pm["point_biserial_img"] > 0
+    # 流行度×desc：A(count100,无desc) vs B(count50,有desc) -> 负相关
+    assert pm["point_biserial_desc"] < 0
 
     # 序列完整性：u1 一半有图(0.5)，u2 全有图(1.0) -> mean=0.75
     assert sc["mean"] == 75.0

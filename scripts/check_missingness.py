@@ -3,9 +3,10 @@
 回答四个决策问题（S2 开工前必须用数据回答）：
 1. 物品级模态覆盖率：title/description/image 在 k-core item 集上的占比
 2. 交互级文本覆盖率：有非空 review 文本的交互占比（抽样估计）
-3. 交互级缺失模式分布：{text+image, text-only, image-only, none} 各占比
+3. 交互级缺失模式分布：{text,image,desc} 的 2^3=8 种子集各占比
    -> 决定「观测缺失模式分环境」是否可行、是否必须依赖合成增广
-4. 流行度 × 缺失相关：image/text 覆盖率随流行度的变化趋势
+   （desc 是唯一有实质自然缺失的通道，约 50%——必须纳入模式分布）
+4. 流行度 × 缺失相关：image/desc/text 覆盖率随流行度的变化趋势
    -> MNAR 倾向模型（问题3）的种子证据
 附：序列完整性分布（每用户历史中 image 可用占比的分位数）——评估时缺失强度的现实基准。
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import itertools
 import json
 import math
 import subprocess
@@ -165,14 +167,29 @@ def parse_review(rec: dict) -> dict:
     return {"has_text": _has_text(rec.get("text"))}
 
 
-def pattern_label(has_text: bool, has_image: bool) -> str:
-    if has_text and has_image:
-        return "text+image"
+MODALITIES = ("text", "image", "desc")
+
+
+def _all_patterns() -> list[str]:
+    """{text,image,desc} 的全部非空子集 + none，共 2^3=8 种缺失模式。"""
+    out = []
+    for r in range(1, len(MODALITIES) + 1):
+        for combo in itertools.combinations(MODALITIES, r):
+            out.append("+".join(combo))
+    out.append("none")
+    return out
+
+
+def pattern_label(has_text: bool, has_image: bool, has_desc: bool = False) -> str:
+    """缺失模式标签：n 个模态拼 n 个，全缺为 none。"""
+    parts = []
     if has_text:
-        return "text-only"
+        parts.append("text")
     if has_image:
-        return "image-only"
-    return "none"
+        parts.append("image")
+    if has_desc:
+        parts.append("desc")
+    return "+".join(parts) if parts else "none"
 
 
 # ---------------------------------------------------------------- k-core 与流式读取
@@ -238,16 +255,17 @@ def compute_stats(
         "median_image_count": _median_image_count(item_flags),
     }
 
-    # 交互级：缺失模式分布（text 来自 review 抽样，image 来自 item 级）
-    patterns = {"text+image": 0, "text-only": 0, "image-only": 0, "none": 0}
+    # 交互级：缺失模式分布（text 来自 review 抽样，image/desc 来自 item 级）
+    patterns = {k: 0 for k in _all_patterns()}
     for (uid, pa), has_text in review_flags.items():
-        has_image = item_flags.get(pa, {}).get("has_image", False)
-        patterns[pattern_label(has_text, has_image)] += 1
+        f = item_flags.get(pa, {})
+        patterns[pattern_label(has_text, f.get("has_image", False), f.get("has_desc", False))] += 1
     n_pattern = sum(patterns.values())
     pattern_share = {
         k: round(100.0 * v / n_pattern, 2) if n_pattern else 0.0 for k, v in patterns.items()
     }
-    has_text_share = pattern_share["text+image"] + pattern_share["text-only"]
+    texted = sum(v for k, v in patterns.items() if "text" in k)
+    has_text_share = round(100.0 * texted / n_pattern, 2) if n_pattern else 0.0
     distinct = sum(1 for v in patterns.values() if v > 0)
 
     # 流行度 × 缺失（MNAR 种子）：物品按交互数分 10 等频桶 + log 流行度点二列相关
@@ -259,18 +277,21 @@ def compute_stats(
     for b in range(10):
         seg = pop_items[n_pop * b // 10: n_pop * (b + 1) // 10]
         if not seg:
-            buckets.append({"range": f"{b*10}-{b*10+9}%", "n_items": 0, "pct_image": 0.0, "pct_text": 0.0})
+            buckets.append({"range": f"{b*10}-{b*10+9}%", "n_items": 0, "pct_image": 0.0, "pct_desc": 0.0, "pct_text": 0.0})
             continue
         img = sum(1 for pa, _ in seg if item_flags.get(pa, {}).get("has_image", False))
+        desc = sum(1 for pa, _ in seg if item_flags.get(pa, {}).get("has_desc", False))
         txt = sum(1 for pa, _ in seg if pa in texted_items)
         buckets.append({
             "range": f"{b*10}-{b*10+9}%",
             "n_items": len(seg),
             "pct_image": round(100.0 * img / len(seg), 2),
+            "pct_desc": round(100.0 * desc / len(seg), 2),
             "pct_text": round(100.0 * txt / len(seg), 2),
         })
 
     imgs = [1.0 if item_flags.get(pa, {}).get("has_image", False) else 0.0 for pa, _ in pop_items]
+    descs = [1.0 if item_flags.get(pa, {}).get("has_desc", False) else 0.0 for pa, _ in pop_items]
     texts = [1.0 if pa in texted_items else 0.0 for pa, _ in pop_items]
     log_counts = [math.log1p(c) for _, c in pop_items]
 
@@ -295,6 +316,7 @@ def compute_stats(
         "popularity_missingness": {
             "buckets": buckets,
             "point_biserial_img": round(_point_biserial(imgs, log_counts), 4),
+            "point_biserial_desc": round(_point_biserial(descs, log_counts), 4),
             "point_biserial_text": round(_point_biserial(texts, log_counts), 4),
         },
         "sequence_completeness": seq_stats,
@@ -368,18 +390,18 @@ def _format_report(stats: dict) -> str:
         f"  image 数中位数: {ic['median_image_count']}",
         "",
         f"交互级缺失模式 (抽样 N={pd_['n_sampled']:,}; 不同模式 {pd_['distinct']} 种)",
-        "  " + "  ".join(f"{k}={pd_['shares'][k]}%" for k in ["text+image", "text-only", "image-only", "none"]),
+        "  " + ("  ".join(f"{k}={v}%" for k, v in pd_["shares"].items() if v > 0) or "(空)"),
         f"  有文本交互合计 (问题2): {pd_['has_text_share']}%",
         "",
         f"序列完整性 (用户 N={sc['n_users']:,}; 历史 image 占比)",
         f"  mean={sc['mean']}%  p50={sc['p50']}%  p90={sc['p90']}%  低于50%用户 {sc['pct_below_half']}%",
         "",
-        "流行度 × 缺失 (log 流行度点二列相关; image={:.3f}, text={:.3f})".format(
-            pm["point_biserial_img"], pm["point_biserial_text"]
+        "流行度 × 缺失 (log 流行度点二列相关; image={:.3f}, desc={:.3f}, text={:.3f})".format(
+            pm["point_biserial_img"], pm["point_biserial_desc"], pm["point_biserial_text"]
         ),
     ]
     for b in pm["buckets"]:
-        lines.append(f"  {b['range']:>6}: n={b['n_items']:>5}  image={b['pct_image']}%  text(物品有)= {b['pct_text']}%")
+        lines.append(f"  {b['range']:>6}: n={b['n_items']:>5}  image={b['pct_image']}%  desc={b['pct_desc']}%  text={b['pct_text']}%")
     return "\n".join(lines)
 
 
