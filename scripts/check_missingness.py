@@ -11,8 +11,9 @@
 
 k-core 语义与 preprocess.k_core_filter 一致：迭代式、user+item 双侧、交互数 ≥ k 剪枝到收敛。
 
-用法（服务器上，数据缺失时自动从 hf-mirror 下载）：
+用法（服务器上，数据缺失时自动从 hf-mirror 下载；reviews 默认只取前 600MB 前缀够抽样）：
   python scripts/check_missingness.py --min-interactions 10 --sample 1000000
+  # reviews 全量下载（S2 抽特征时才需要）：--reviews-prefix-mb 0
 
 输出：控制台摘要 + {--out}/summary.json + {--out}/report.txt
 """
@@ -39,9 +40,10 @@ DEFAULT_MIRROR = "hf-mirror.com"
 REPO = "McAuley-Lab/Amazon-Reviews-2023"
 RESOLVE = "https://{host}/datasets/{repo}/resolve/main/{path}"
 
-META_PATH = f"raw/meta_categories/meta_{CATEGORY}.jsonl.gz"
-REVIEWS_PATH = f"raw/review_categories/{CATEGORY}.jsonl.gz"
-RAW_BENCH = f"benchmark/0core/rating_only/{CATEGORY}.csv.gz"  # 与 fetch_amazon 一致的原始交互集
+# 镜像内真实文件名均为未压缩（.csv / .jsonl）；曾误以为 .gz 导致 404
+META_PATH = f"raw/meta_categories/meta_{CATEGORY}.jsonl"
+REVIEWS_PATH = f"raw/review_categories/{CATEGORY}.jsonl"
+RAW_BENCH = f"benchmark/0core/rating_only/{CATEGORY}.csv"  # 与 fetch_amazon 一致的原始交互集
 
 MIN_KEEP_BYTES = 1_000_000  # 低于此视为残缺/中断文件，重新下载
 
@@ -78,13 +80,37 @@ def ensure_download(dest: Path, remote_path: str, mirror: str, label: str) -> Pa
 
 
 def resolve_raw(data_dir: Path, mirror: str) -> Path:
-    """优先复用 fetch_amazon 已下载的 raw（.csv / .csv.gz），否则下载 .csv.gz。"""
+    """优先复用 fetch_amazon 已下载的 raw（.csv / .csv.gz），否则下载 .csv。"""
     for name in (CATEGORY + ".csv", CATEGORY + ".csv.gz"):
         p = data_dir / name
         if p.exists() and p.stat().st_size > MIN_KEEP_BYTES:
             print(f"reuse raw: {p.name} ({p.stat().st_size / 1e6:.0f} MB)")
             return p
-    return ensure_download(data_dir / (CATEGORY + ".csv.gz"), RAW_BENCH, mirror, "rating_only 交互集")
+    return ensure_download(data_dir / (CATEGORY + ".csv"), RAW_BENCH, mirror, "rating_only 交互集")
+
+
+def ensure_prefix_download(dest: Path, remote_path: str, mirror: str, mb: int) -> Path:
+    """只下载文件开头 mb MB（HTTP Range），够抽样即可，避免全量大文件下载。
+
+    用于 reviews（全量 ~11.4GB，抽样只需开头 ~600MB）。产出文件是前缀切片，
+    不是完整数据集——S2 真正抽特征时再全量下载。
+    """
+    want = mb * 1_000_000
+    if dest.exists() and dest.stat().st_size >= int(want * 0.9):
+        print(f"skip (already have prefix): {dest.name} ({dest.stat().st_size / 1e6:.0f} MB)")
+        return dest
+    url = _resolve_url(mirror, remote_path)
+    print(f"downloading {mb} MB prefix of reviews (Range) ...")
+    print(f"  {url}  字节 0-{want - 1}")
+    proc = subprocess.run(
+        ["curl", "-sL", "--fail", "-r", f"0-{want - 1}", "-o", str(dest), url],
+        text=True,
+    )
+    if proc.returncode != 0:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"prefix download failed: {url}")
+    print(f"  -> OK ({dest.stat().st_size / 1e6:.0f} MB)")
+    return dest
 
 
 # ---------------------------------------------------------------- 模态解析（纯函数，可单测）
@@ -382,7 +408,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "outputs" / "data_check")
     parser.add_argument("--raw", type=Path, default=None, help="rating_only CSV 路径（默认自动下载）")
     parser.add_argument("--meta", type=Path, default=None, help="metadata JSONL 路径（默认自动下载）")
-    parser.add_argument("--reviews", type=Path, default=None, help="reviews JSONL 路径（默认自动下载）")
+    parser.add_argument("--reviews", type=Path, default=None, help="reviews JSONL 路径（默认自动下载，全量 ~11.4GB）")
+    parser.add_argument(
+        "--reviews-prefix-mb", type=int, default=600,
+        help="只下载 reviews 文件开头 N MB（HTTP Range，默认 600），够抽样；传 0 则全量下载",
+    )
     args = parser.parse_args()
 
     data_dir = args.data_dir
@@ -393,9 +423,19 @@ def main() -> None:
     meta = args.meta or ensure_download(
         data_dir / Path(META_PATH).name, META_PATH, args.mirror, "metadata"
     )
-    reviews = args.reviews or ensure_download(
-        data_dir / Path(REVIEWS_PATH).name, REVIEWS_PATH, args.mirror, "reviews"
-    )
+    if args.reviews:
+        reviews = args.reviews
+    elif args.reviews_prefix_mb > 0:
+        if args.sample == 0:
+            print("WARN: --reviews-prefix-mb 只覆盖文件开头，与 --sample 0（全量）矛盾，改用全量下载")
+            reviews = ensure_download(data_dir / Path(REVIEWS_PATH).name, REVIEWS_PATH, args.mirror, "reviews")
+        else:
+            reviews = ensure_prefix_download(
+                data_dir / (Path(REVIEWS_PATH).name + ".prefix"),
+                REVIEWS_PATH, args.mirror, args.reviews_prefix_mb,
+            )
+    else:
+        reviews = ensure_download(data_dir / Path(REVIEWS_PATH).name, REVIEWS_PATH, args.mirror, "reviews")
 
     # ---- 1. 原始交互集 -> k-core 域：流行度 / 用户历史 / item 集
     print(f"\nreading interactions: {raw.name}")
