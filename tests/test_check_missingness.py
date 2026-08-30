@@ -122,9 +122,13 @@ def test_compute_stats_synthetic():
     # 流行度×desc：A(count100,无desc) vs B(count50,有desc) -> 负相关
     assert pm["point_biserial_desc"] < 0
 
-    # 序列完整性：u1 一半有图(0.5)，u2 全有图(1.0) -> mean=0.75
-    assert sc["mean"] == 75.0
-    assert sc["pct_below_half"] == 0.0
+    # 序列完整性（desc 通道，唯一真实缺失通道）：u1 一半有 desc(0.5)，u2 全无(0.0)
+    assert sc["mean"] == 25.0
+    assert sc["pct_below_half"] == 50.0
+    # 跨环境混合：u1 序列内 desc 可用+缺失混合，u2 全缺失
+    assert sc["pct_users_mixed_env"] == 50.0
+    assert sc["pct_users_any_missing"] == 100.0
+    assert sc["pct_users_fully_available"] == 0.0
 
 
 def test_compute_stats_empty_items():

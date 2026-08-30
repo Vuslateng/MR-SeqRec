@@ -8,7 +8,8 @@
    （desc 是唯一有实质自然缺失的通道，约 50%——必须纳入模式分布）
 4. 流行度 × 缺失相关：image/desc/text 覆盖率随流行度的变化趋势
    -> MNAR 倾向模型（问题3）的种子证据
-附：序列完整性分布（每用户历史中 image 可用占比的分位数）——评估时缺失强度的现实基准。
+附：序列完整性分布（每用户历史中 desc 可用占比的分位数）+ 跨环境混合度（序列内是否混合
+desc 可用/缺失两类环境）——评估时缺失强度的现实基准与 V-REx 环境混杂判断。
 
 k-core 语义与 preprocess.k_core_filter 一致：迭代式、user+item 双侧、交互数 ≥ k 剪枝到收敛。
 
@@ -295,14 +296,29 @@ def compute_stats(
     texts = [1.0 if pa in texted_items else 0.0 for pa, _ in pop_items]
     log_counts = [math.log1p(c) for _, c in pop_items]
 
-    # 序列完整性：每用户历史中 image 可用物品占比
+    # 序列完整性 + 跨环境混合度：desc 是唯一真实缺失通道（image 恒 100% 无信息）
+    # - 完整性：每用户历史中 desc 可用物品占比（评估时缺失强度的现实基准）
+    # - 跨环境混合度：用户历史是否同时含 desc 可用与 desc 缺失物品——判断"缺失"
+    #   在序列内是天然混合的（环境多样）还是集中在用户/物品两端（环境混杂）。
     shares = []
+    n_mixed = n_any_missing = n_fully = 0
     for seq in user_sequences.values():
         if not seq:
             continue
-        hit = sum(1 for pa in seq if item_flags.get(pa, {}).get("has_image", False))
-        shares.append(hit / len(seq))
+        n = len(seq)
+        avail = sum(1 for pa in seq if item_flags.get(pa, {}).get("has_desc", False))
+        shares.append(avail / n)
+        if 0 < avail < n:
+            n_mixed += 1
+        if avail < n:
+            n_any_missing += 1
+        if avail == n:
+            n_fully += 1
     seq_stats = _percentiles(shares)
+    n_users = seq_stats["n_users"]
+    seq_stats["pct_users_mixed_env"] = round(100.0 * n_mixed / n_users, 1) if n_users else 0.0
+    seq_stats["pct_users_any_missing"] = round(100.0 * n_any_missing / n_users, 1) if n_users else 0.0
+    seq_stats["pct_users_fully_available"] = round(100.0 * n_fully / n_users, 1) if n_users else 0.0
 
     return {
         "item_coverage": item_cov,
@@ -412,8 +428,10 @@ def _format_report(stats: dict) -> str:
         "  " + ("  ".join(f"{k}={v}%" for k, v in pd_["shares"].items() if v > 0) or "(空)"),
         f"  有文本交互合计 (问题2): {pd_['has_text_share']}%",
         "",
-        f"序列完整性 (用户 N={sc['n_users']:,}; 历史 image 占比)",
+        f"序列完整性 (用户 N={sc['n_users']:,}; 历史 desc 占比)",
         f"  mean={sc['mean']}%  p50={sc['p50']}%  p90={sc['p90']}%  低于50%用户 {sc['pct_below_half']}%",
+        f"跨环境混合度: 历史含 desc 缺失用户 {sc['pct_users_any_missing']}%  全可用 {sc['pct_users_fully_available']}%  "
+        f"序列内混合两种环境 {sc['pct_users_mixed_env']}%",
         "",
         "流行度 × 缺失 (log 流行度点二列相关; image={:.3f}, desc={:.3f}, text={:.3f})".format(
             pm["point_biserial_img"], pm["point_biserial_desc"], pm["point_biserial_text"]
