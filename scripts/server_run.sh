@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MR-SeqRec GPU 服务器一键训练脚本（Linux + CUDA）
 # 用法：在项目根目录执行  bash scripts/server_run.sh
-# 前置：代码已传到服务器、Python ≥ 3.12、数据已就位（见下方 [3/6] 两条路径）
+# 前置：代码已传到服务器、Python ≥ 3.10、数据已就位（见下方 [3/6] 两条路径）
 # 说明：脚本幂等——已建 venv / 已装依赖 / 已有数据会跳过对应步骤。
 set -euo pipefail
 
@@ -18,10 +18,10 @@ TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu121}"
 echo "==> [1/6] NVIDIA GPU 检查 =="
 nvidia-smi || { echo "错误：未检测到 NVIDIA GPU，请在 GPU 节点上执行"; exit 1; }
 
-echo "==> [2/6] Python 版本检查（需 ≥ 3.12）=="
-python3 - <<'PY' || { echo "错误：需要 Python ≥ 3.12（如缺可 conda create -n mrseq python=3.12）"; exit 1; }
+echo "==> [2/6] Python 版本检查（需 ≥ 3.10）=="
+python3 - <<'PY' || { echo "错误：需要 Python ≥ 3.10"; exit 1; }
 import sys
-sys.exit(0 if sys.version_info >= (3, 12) else 1)
+sys.exit(0 if sys.version_info >= (3, 10) else 1)
 PY
 python3 --version
 

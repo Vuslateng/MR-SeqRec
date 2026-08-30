@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mrseqrec"
 version = "0.1.0"
 description = "Missingness-Invariant Multimodal Sequential Recommendation (MR-SeqRec)"
-requires-python = ">=3.12"
+requires-python = ">=3.10"  # 兼容云 GPU 镜像（AutoDL 等默认 3.10/3.11），代码仅用 3.10 语法
 dependencies = [
     "torch>=2.2",
     "numpy>=1.26",
