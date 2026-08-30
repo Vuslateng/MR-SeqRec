@@ -18,6 +18,7 @@ import json
 import os
 import random
 import socket
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -48,8 +49,13 @@ def collect_urls(meta_rows, sample: int, max_urls: int, seed: int = 20260830):
     """从 meta 行蓄水池均匀抽 sample 个物品，收集最多 max_urls 个图片 URL。
 
     - 蓄水池抽样：不假设文件顺序/总长，避免"文件前缀物品"的代表性偏差；
-    - max_urls 按物品粒度封顶（可能略超）；seed 固定保证重跑一致。
-    返回 (urls, item_stats)。item_stats 含抽样物品数、有图占比、URL/物品均值。
+    - **max_urls 截断是"收全量 → 洗牌 → 随机截断"而非"文件序先到先得"**
+      （2026-08-30 审查修正）：旧版按物品顺序累积、达到上限即 break，前部多图商品
+      会占满配额导致后部物品的 URL 完全不参与探测，且 item_stats 在 break 时少计
+      物品数；新版每个抽样物品的 URL 等概率进入探测集，存活率才反映 URL 总体；
+    - seed 固定保证重跑一致。
+    返回 (urls, item_stats)。item_stats 含抽样物品数、有图占比、URL/物品均值、
+    n_items_in_probe（URL 实际来源物品数）。
     """
     rng = random.Random(seed)
     sampled = []
@@ -61,24 +67,30 @@ def collect_urls(meta_rows, sample: int, max_urls: int, seed: int = 20260830):
             if j < sample:
                 sampled[j] = row
 
-    urls = []
-    n_items = 0
+    n_items = len(sampled)
     n_with_img = 0
     per_item = []
-    for row in sampled:
-        n_items += 1
+    pairs = []  # (物品 id, url)——id 用于统计探测集的实际来源物品数
+    for idx, row in enumerate(sampled):
         u = _image_urls(row.get("images"))
         per_item.append(len(u))
         if u:
             n_with_img += 1
-            urls.extend(u)
-            if len(urls) >= max_urls:
-                break
+        pid = row.get("parent_asin")
+        key = pid if pid is not None else f"__row{idx}"
+        pairs.extend((key, url) for url in u)
+
+    rng.shuffle(pairs)
+    pairs = pairs[:max_urls]
+    urls = [url for _, url in pairs]
+    n_items_in_probe = len({pid for pid, _ in pairs})
+
     item_stats = {
         "n_items": n_items,
         "n_with_image": n_with_img,
         "pct_with_image": round(100.0 * n_with_img / n_items, 2) if n_items else 0.0,
         "urls_per_item_mean": round(sum(per_item) / len(per_item), 2) if per_item else 0.0,
+        "n_items_in_probe": n_items_in_probe,
     }
     return urls, item_stats
 
@@ -103,9 +115,16 @@ def http_status(url: str, timeout: float, range_bytes: int):
     except urllib.error.HTTPError as e:
         return e.code, b"", "http"
     except urllib.error.URLError as e:
-        if isinstance(e.reason, socket.gaierror):
+        r = e.reason
+        if isinstance(r, socket.gaierror):
             return None, b"", "dns"
-        return None, b"", "conn"
+        if isinstance(r, ssl.SSLError):
+            return None, b"", "ssl"
+        if isinstance(r, (ConnectionRefusedError, ConnectionResetError, ConnectionAbortedError)):
+            return None, b"", "conn"
+        if isinstance(r, (socket.timeout, TimeoutError)):
+            return None, b"", "timeout"
+        return None, b"", "other"
     except TimeoutError:
         return None, b"", "timeout"
     except Exception:
@@ -197,14 +216,15 @@ def report(out: dict) -> None:
     print("=" * 56)
     print("image 可下载性核查")
     print("=" * 56)
-    print(f"抽样物品 {is_['n_items']}  有图 {is_['pct_with_image']}%  URL/物品均值 {is_['urls_per_item_mean']}")
+    print(f"抽样物品 {is_['n_items']}  有图 {is_['pct_with_image']}%  URL/物品均值 {is_['urls_per_item_mean']}  "
+          f"URL 实际来源物品 {is_['n_items_in_probe']}")
     mag = f"  下载内容为真图片 {d['pct_valid_image']}%" if d.get("pct_valid_image") is not None else ""
     print(f"URL 总数 {d['n_urls']}  存活 {d['n_ok']} ({d['pct_ok']}%){mag}")
     if d["by_status"]:
         print("状态码分布: " + "  ".join(f"{k}={v}" for k, v in sorted(d["by_status"].items())))
     if d["by_failure"]:
         print("网络层失败: " + "  ".join(f"{k}={v}" for k, v in sorted(d["by_failure"].items()))
-              + "  (超时/连接拒绝可能是网络屏蔽而非 URL 死链)")
+              + "  (超时/连接拒绝/SSL 失败可能是网络屏蔽而非 URL 死链；conn 类含拒绝/重置/中止)")
     print("按 host：")
     for h, v in sorted(d["by_host"].items(), key=lambda kv: -kv[1]["n"]):
         print(f"  {h:45s} n={v['n']:>4}  存活 {v['pct_ok']}%")
@@ -239,6 +259,7 @@ def main() -> None:
         "seed": args.seed,
         "timeout": args.timeout,
     }
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     report(out)

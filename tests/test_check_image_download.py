@@ -1,4 +1,7 @@
+import ssl
 import threading
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -48,18 +51,21 @@ def test_collect_urls_caps_and_stats():
          "images": [{"large": f"http://h/{i}/a.jpg"}, {"large": f"http://h/{i}/b.jpg"}]}
         for i in range(5)
     ]
-    # 3 物品 × 2 URL = 6，max_urls=5 -> 按物品粒度收集到 6（可能略超上限）
+    # 3 物品 × 2 URL = 6，max_urls=5 -> 收全量洗牌后随机截断为 5（非按物品先到先得）
     urls, st = collect_urls(rows, sample=3, max_urls=5)
     assert st["n_items"] == 3
     assert st["pct_with_image"] == 100.0
-    assert len(urls) == 6
+    assert len(urls) == 5
+    assert st["n_items_in_probe"] == 3  # 只截 1 个 URL，3 个来源物品都保留
     # sample 截断
     urls2, st2 = collect_urls(rows, sample=2, max_urls=100)
     assert len(urls2) == 4 and st2["n_items"] == 2
     assert st2["urls_per_item_mean"] == 2.0
+    assert st2["n_items_in_probe"] == 2
     # 无图物品
     urls3, st3 = collect_urls([{"parent_asin": "X"}], sample=1, max_urls=100)
     assert urls3 == [] and st3["pct_with_image"] == 0.0
+    assert st3["n_items_in_probe"] == 0
 
 
 def test_collect_urls_reservoir_seed():
@@ -106,10 +112,20 @@ def test_http_status_local(local_server):
 
 
 def test_http_status_conn_refused():
-    # 127.0.0.1 上的空端口 -> 连接拒绝，归为网络层失败
+    # 127.0.0.1 上的空端口 -> 网络层失败（本机可能是超时而非拒绝，正确分类为 timeout）
     code, first, fail = http_status("http://127.0.0.1:1/x.jpg", 2.0, 2048)
     assert code is None
-    assert fail in {"conn", "other"}
+    assert fail in {"conn", "timeout", "other"}
+
+
+def test_http_status_ssl_classified(monkeypatch):
+    # SSL 错误须单独分类，不得混入 conn（防"证书问题"误判为网络屏蔽）
+    def fake_urlopen(req, timeout):
+        raise urllib.error.URLError(ssl.SSLError("certificate verify failed"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    code, first, fail = http_status("https://example.com/x.jpg", 3.0, 2048)
+    assert code is None and first == b"" and fail == "ssl"
 
 
 # ---------------------------------------------------------------- 汇总
