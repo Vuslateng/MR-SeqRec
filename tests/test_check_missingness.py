@@ -172,6 +172,21 @@ def test_mnar_verdict_weak_and_fallback():
     assert "中" in label
 
 
+def test_meta_items_rows():
+    from scripts.check_missingness import meta_items_rows
+
+    item_flags = {
+        "B": {"has_title": True, "has_desc": True, "has_image": True, "n_images": 1},
+        "A": {"has_title": True, "has_desc": False, "has_image": True, "n_images": 2},
+    }
+    counts = pd.Series({"A": 100, "B": 50})
+    rows = meta_items_rows(item_flags, counts, {"C", "B", "A"})
+    assert [r["parent_asin"] for r in rows] == ["A", "B", "C"]  # 确定性排序
+    assert rows[0] == {"parent_asin": "A", "count": 100, "has_desc": False}
+    assert rows[1] == {"parent_asin": "B", "count": 50, "has_desc": True}
+    assert rows[2] == {"parent_asin": "C", "count": 0, "has_desc": False}  # 无 meta → desc 缺失回退
+
+
 def test_iter_jsonl_gz_sample(tmp_path):
     path = tmp_path / "x.jsonl.gz"
     rows = [{"i": i, "parent_asin": f"P{i}"} for i in range(5)]

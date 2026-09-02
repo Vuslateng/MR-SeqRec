@@ -18,6 +18,8 @@ k-core 语义与 preprocess.k_core_filter 一致：迭代式、user+item 双侧�
   # reviews 全量下载（S2 抽特征时才需要）：--reviews-prefix-mb 0
 
 输出：控制台摘要 + {--out}/summary.json + {--out}/report.txt
+      可选 --meta-items-out 额外落盘 k-core 物品集 meta-items.jsonl
+      （{"parent_asin","count","has_desc"}，喂给服务器批次 ③④⑦）
 """
 
 from __future__ import annotations
@@ -404,6 +406,31 @@ def _mnar_verdict(pm: dict) -> tuple[str, float, str]:
     return channel, corr, label
 
 
+def meta_items_rows(
+    item_flags: dict[str, dict],
+    counts: pd.Series,
+    kcore_items: set,
+) -> list[dict]:
+    """k-core 物品集的 meta-items 行（⑥，喂给 desc 信息性诊断 / 倾向估计 / S2 real）。
+
+    行 = {"parent_asin", "count", "has_desc"}，key 空间与 check_missingness 的
+    k-core 物品集一致（parent_asin 字符串）；count 为 k-core 域内交互计数
+    （与 S1/S2 训练人群一致）。确定性排序（parent_asin 升序）便于复现与 diff。
+    """
+    rows = []
+    for pa in sorted(kcore_items):
+        # str(pa) 强制字符串键：fetch_amazon 落盘的 items.jsonl / meta 的 parent_asin
+        # 均为字符串，防 pandas 把数值型 asin 读成 numpy 标量导致 JSON 序列化失败或
+        # desc_informativity/S2 字符串键查表错位
+        s = str(pa)
+        rows.append({
+            "parent_asin": s,
+            "count": int(counts.get(pa, 0)),
+            "has_desc": bool(item_flags.get(s, {}).get("has_desc", False)),
+        })
+    return rows
+
+
 # ---------------------------------------------------------------- 报告
 
 def _format_report(stats: dict) -> str:
@@ -473,6 +500,11 @@ def main() -> None:
     parser.add_argument(
         "--reviews-prefix-mb", type=int, default=600,
         help="只下载 reviews 文件开头 N MB（HTTP Range，默认 600），够抽样；传 0 则全量下载",
+    )
+    parser.add_argument(
+        "--meta-items-out", type=Path, default=None,
+        help="写 k-core 物品集 meta-items.jsonl（{\"parent_asin\",\"count\",\"has_desc\"}，"
+             "与本次 k-core 域一致），供服务器批次 ③④⑦ 使用",
     )
     args = parser.parse_args()
 
@@ -550,6 +582,13 @@ def main() -> None:
     out_json.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
     out_txt.write_text(_format_report(stats), encoding="utf-8")
     print(f"\nwritten: {out_json}\n         {out_txt}")
+
+    if args.meta_items_out:
+        rows = meta_items_rows(item_flags, counts, kcore_items)
+        with open(args.meta_items_out, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(f"meta-items: {args.meta_items_out} ({len(rows):,} 行，count=本次 k-core 域计数)")
 
 
 if __name__ == "__main__":
