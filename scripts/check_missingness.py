@@ -120,8 +120,18 @@ def ensure_prefix_download(dest: Path, remote_path: str, mirror: str, mb: int) -
 
 # ---------------------------------------------------------------- 模态解析（纯函数，可单测）
 
+def _is_http_url(s: str) -> bool:
+    """Amazon meta 的 images 值为完整 http(s) 链接；variant 标签（MAIN/PT01）等非 URL 需排除。"""
+    return s.lower().startswith(("http://", "https://"))
+
+
 def _image_urls(field) -> list[str]:
-    """从 metadata 的 images 字段提取 URL 字符串列表（兼容 list[dict] / dict[list] / list[str]）。"""
+    """从 metadata 的 images 字段提取 HTTP(S) URL 字符串列表（兼容 list[dict] / dict[list] / list[str]）。
+
+    Amazon-2023 images 是"变体"列表，每个变体是 dict——值里除 URL 外还有 variant 标签
+    （如 "MAIN"）等非 URL 字符串。只收 http(s) 开头的值：variant 标签若混入会污染图像计数，
+    且探针脚本 urllib 请求时直接崩 "unknown url type"。
+    """
     if isinstance(field, dict):
         nested = []
         for v in field.values():
@@ -133,10 +143,13 @@ def _image_urls(field) -> list[str]:
     for it in field:
         if isinstance(it, dict):
             for v in it.values():
-                if isinstance(v, str) and v.strip():
-                    urls.append(v.strip())
-        elif isinstance(it, str) and it.strip():
-            urls.append(it.strip())
+                s = v.strip() if isinstance(v, str) else ""
+                if _is_http_url(s):
+                    urls.append(s)
+        elif isinstance(it, str):
+            s = it.strip()
+            if _is_http_url(s):
+                urls.append(s)
     return urls
 
 

@@ -20,18 +20,28 @@ from scripts.check_missingness import (
 
 
 def test_image_urls_variants():
-    # list[dict]
-    assert _image_urls([{"small": "a.jpg", "large": "b.jpg"}]) == ["a.jpg", "b.jpg"]
+    # Amazon-2023 真实形状：变体 dict 里 variant 标签（MAIN/PT01）不是 URL，必须排除
+    img = [
+        {"large": "https://i.example/A.jpg", "thumb": "https://i.example/A_t.jpg", "variant": "MAIN"},
+        {"large": "https://i.example/B.jpg", "variant": "PT01"},
+    ]
+    assert _image_urls(img) == ["https://i.example/A.jpg", "https://i.example/A_t.jpg",
+                                "https://i.example/B.jpg"]
     # dict[list]（旧格式）
-    assert _image_urls({"small": ["a.jpg"], "large": ["b.jpg"]}) == ["a.jpg", "b.jpg"]
+    assert _image_urls({"small": ["https://i.example/a.jpg"], "large": ["https://i.example/b.jpg"]}) \
+        == ["https://i.example/a.jpg", "https://i.example/b.jpg"]
     # list[str]
-    assert _image_urls(["a.jpg", "b.jpg"]) == ["a.jpg", "b.jpg"]
+    assert _image_urls(["https://i.example/a.jpg", "https://i.example/b.jpg"]) \
+        == ["https://i.example/a.jpg", "https://i.example/b.jpg"]
+    # 非 http(s) 字符串（纯 variant 标签 / 短路径）一律丢弃——防探针 "unknown url type" 崩溃
+    assert _image_urls([{"variant": "MAIN"}, "MAIN", "ok.jpg"]) == []
     # 空 / 缺省 / 无意义
     assert _image_urls([]) == []
     assert _image_urls(None) == []
     assert _image_urls({"small": []}) == []
-    # 空白 URL 忽略
-    assert _image_urls([{"small": "  "}, "ok.jpg"]) == ["ok.jpg"]
+    # 空白 / 非 http 忽略，真 URL 保留
+    assert _image_urls([{"small": "  ", "variant": "MAIN"}, "ok.jpg", "https://i.example/ok.jpg"]) \
+        == ["https://i.example/ok.jpg"]
 
 
 def test_has_desc_string_and_list():
@@ -44,7 +54,8 @@ def test_has_desc_string_and_list():
 
 
 def test_parse_meta_and_review():
-    meta = parse_meta({"parent_asin": "A1", "title": "T", "description": "D", "images": [{"large": "x.jpg"}]})
+    meta = parse_meta({"parent_asin": "A1", "title": "T", "description": "D",
+                       "images": [{"large": "https://i.example/x.jpg", "variant": "MAIN"}]})
     assert meta == {"has_title": True, "has_desc": True, "has_image": True, "n_images": 1}
     assert parse_meta({"parent_asin": "A2"}) == {
         "has_title": False, "has_desc": False, "has_image": False, "n_images": 0,

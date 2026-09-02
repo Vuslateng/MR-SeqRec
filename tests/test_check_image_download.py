@@ -128,6 +128,15 @@ def test_http_status_ssl_classified(monkeypatch):
     assert code is None and first == b"" and fail == "ssl"
 
 
+def test_http_status_invalid_scheme_no_network():
+    # 畸形/标签字符串混入（如 variant "MAIN"）：按 invalid 计一条，不再抛 unknown url type
+    #（回归：真实 meta 的 variant 标签曾让整个并发探针崩溃）
+    code, first, fail = http_status("MAIN", 2.0, 2048)
+    assert code is None and first == b"" and fail == "invalid"
+    code2, _, fail2 = http_status("data:image/png;base64,xx", 2.0, 2048)
+    assert fail2 == "invalid"
+
+
 # ---------------------------------------------------------------- 汇总
 
 

@@ -103,9 +103,14 @@ def http_status(url: str, timeout: float, range_bytes: int):
 
     返回 (status_code, first_bytes, fail_kind)：
       - 成功/HTTP 明确失败（服务器响应了）：fail_kind="http"，code 为状态码；
-      - 网络层失败：code=None，fail_kind ∈ {"timeout","conn","dns","other"}。
+      - 网络层失败：code=None，fail_kind ∈ {"timeout","conn","dns","ssl","other"}；
+      - 非 http(s) scheme（畸形/标签字符串混入）：code=None，fail_kind="invalid"。
     3xx 由 urllib 自动跟随。
     """
+    # 纵深防御：畸形 URL 在 Request 构造期抛 ValueError（try 块外），先按 scheme 过滤，
+    # 单条坏 URL 只记一条 invalid，不让整个并发探测崩溃。
+    if urlparse(url).scheme not in ("http", "https"):
+        return None, b"", "invalid"
     req = urllib.request.Request(
         url, headers={"User-Agent": _UA, "Range": f"bytes=0-{range_bytes - 1}"}
     )
